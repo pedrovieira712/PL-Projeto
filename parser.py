@@ -108,7 +108,7 @@ def p_const_list(p):
         p[0] = p[1]
 
 def p_const_item(p):
-    '''const_item : ID EQ expression SEMICOLON'''
+    '''const_item : ID EQ expr_bool SEMICOLON'''
     p[0] = ASTNode('const_item', [p[3]], p[1])
     p[0].line = p.lineno(2)
 
@@ -200,7 +200,7 @@ def p_statement(p):
 
 # Comando de atribuição
 def p_assignment_statement(p):
-    '''assignment_statement : variable ASSIGN expression'''
+    '''assignment_statement : variable ASSIGN expr_bool'''
     p[0] = ASTNode('assignment', [p[1], p[3]])
     p[0].line = p.lineno(2)
 
@@ -222,8 +222,8 @@ def p_while_statement(p):
 
 # Comando for
 def p_for_statement(p):
-    '''for_statement : FOR ID ASSIGN expression TO expression DO statement
-                     | FOR ID ASSIGN expression DOWNTO expression DO statement'''
+    '''for_statement : FOR ID ASSIGN expr_bool TO expr_bool DO statement
+                     | FOR ID ASSIGN expr_bool DOWNTO expr_bool DO statement'''
     direction = 'to' if p[5] == 'TO' else 'downto'
     p[0] = ASTNode('for_statement', [p[4], p[6], p[8]], [p[2], direction])
     p[0].line = p.lineno(1)
@@ -262,8 +262,8 @@ def p_variable_list(p):
 
 # Lista de expressões
 def p_expression_list(p):
-    '''expression_list : expression_list COMMA expression
-                       | expression'''
+    '''expression_list : expression_list COMMA expr_bool
+                       | expr_bool'''
     if len(p) == 2:
         p[0] = ASTNode('expression_list', [p[1]])
     else:
@@ -282,8 +282,8 @@ def p_procedure_call(p):
 
 # Lista de argumentos
 def p_argument_list(p):
-    '''argument_list : argument_list COMMA expression
-                     | expression
+    '''argument_list : argument_list COMMA expr_bool
+                     | expr_bool
                      | empty'''
     if len(p) == 2:
         if p[1] is None:  # empty
@@ -297,7 +297,7 @@ def p_argument_list(p):
 # Variáveis
 def p_variable(p):
     '''variable : ID
-                | ID LBRACKET expression RBRACKET'''
+                | ID LBRACKET expr_bool RBRACKET'''
     if len(p) == 2:
         p[0] = ASTNode('variable', [], p[1])
     else:
@@ -361,6 +361,7 @@ def p_op_mul(p):
     '''op_mul : TIMES
               | DIV
               | DIVIDE
+              | MOD
               | AND'''
     p[0] = p[1]
 
@@ -432,6 +433,8 @@ def parse_code(code):
         return result
     except Exception as e:
         print(f"Erro durante o parsing: {e}")
+        import traceback
+        traceback.print_exc()  # Imprime o stack trace para depuração
         return None
 
 # Função para imprimir a AST
