@@ -1,4 +1,4 @@
-# main.py - Arquivo principal do compilador Pascal
+# main.py - Arquivo principal do compilador Pascal (CORRIGIDO)
 import sys
 import os
 import glob
@@ -7,7 +7,7 @@ from parser import parse_code, print_ast
 from semantic import SemanticAnalyzer
 from codegen import CodeGenerator
 
-def compile_file(input_file, output_file=None, debug=False):
+def compile_file(input_file, output_file=None, debug=True):  # Debug ativado por padrão
     """Compila um arquivo Pascal."""
     try:
         # Lê o arquivo de entrada
@@ -70,8 +70,8 @@ def compile_file(input_file, output_file=None, debug=False):
             for line in code:
                 f.write(f"{line}\n")
         
-        print(f"Compilação concluída com sucesso!")
-        print(f"Código gerado em: {output_file}")
+        print(f"   Compilação concluída com sucesso!")
+        print(f"   Código gerado em: {output_file}")
         
         # Mostra estatísticas
         print(f"   Linhas de código gerado: {len(code)}")
@@ -84,6 +84,8 @@ def compile_file(input_file, output_file=None, debug=False):
         return False
     except Exception as e:
         print(f"Erro durante a compilação: {e}")
+        import traceback
+        traceback.print_exc()  # Imprime o stack trace para depuração
         return False
 
 def find_pascal_files(directory="."):
@@ -104,7 +106,7 @@ def find_pascal_files(directory="."):
     files.sort(key=extract_number)
     return files
 
-def compile_all_examples(directory=".", debug=False):
+def compile_all_examples(directory=".", debug=True):  # Debug ativado por padrão
     """Compila todos os arquivos example*.pas encontrados no diretório."""
     pascal_files = find_pascal_files(directory)
     
@@ -113,7 +115,7 @@ def compile_all_examples(directory=".", debug=False):
         print("   Certifique-se de que os arquivos estão no formato: example1.pas, example2.pas, etc.")
         return False
     
-    print(f"📁 Encontrados {len(pascal_files)} arquivo(s) Pascal:")
+    print(f"Encontrados {len(pascal_files)} arquivo(s) Pascal:")
     for file in pascal_files:
         print(f"   - {file}")
     
@@ -131,7 +133,7 @@ def compile_all_examples(directory=".", debug=False):
                 failed_compilations += 1
                 
         except KeyboardInterrupt:
-            print("\n⚠️  Compilação interrompida pelo usuário")
+            print("\n  Compilação interrompida pelo usuário")
             break
         except Exception as e:
             print(f"Erro inesperado ao compilar {input_file}: {e}")
@@ -263,7 +265,7 @@ def main():
         create_example_files()
         
         # Compila todos os arquivos encontrados
-        compile_all_examples(".", debug=False)
+        compile_all_examples(".", debug=True)  # Debug ativado por padrão
         
     elif len(sys.argv) >= 2:
         if sys.argv[1] == "--help" or sys.argv[1] == "-h":
@@ -277,14 +279,14 @@ def main():
             return
         
         elif sys.argv[1] == "--create":
-            print("📝 Criando arquivos de exemplo...")
+            print("Criando arquivos de exemplo...")
             created = create_example_files()
             if not created:
-                print("ℹ️  Todos os arquivos de exemplo já existem")
+                print("Todos os arquivos de exemplo já existem")
             return
         
         elif sys.argv[1] == "--all":
-            print("📋 Modo: Compilação de todos os example*.pas")
+            print("Modo: Compilação de todos os example*.pas")
             debug = "-d" in sys.argv
             compile_all_examples(".", debug)
             return
@@ -293,15 +295,17 @@ def main():
             # Modo específico: compila um arquivo específico
             input_file = sys.argv[1]
             output_file = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith('-') else None
-            debug = '-d' in sys.argv
+            debug = True  # Debug sempre ativado
             
-            print(f"📋 Modo: Compilação de arquivo específico")
+            print(f"Modo: Compilação de arquivo específico")
             compile_file(input_file, output_file, debug)
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n⚠️  Programa interrompido pelo usuário")
+        print("\nPrograma interrompido pelo usuário")
     except Exception as e:
         print(f"\nErro inesperado: {e}")
+        import traceback
+        traceback.print_exc()  # Imprime o stack trace para depuração

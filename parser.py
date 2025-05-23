@@ -14,13 +14,11 @@ class ASTNode:
         return f"ASTNode({self.type}, {self.value}, {len(self.children)} children)"
 
 # Precedência e associatividade dos operadores
+# IMPORTANTE: Seguindo a gramática do professor, a precedência é implementada
+# diretamente na gramática e não através desta tabela
 precedence = (
-    ('left', 'OR'),
-    ('left', 'AND'),
-    ('left', 'EQ', 'NEQ', 'LT', 'GT', 'LTE', 'GTE'),
-    ('left', 'PLUS', 'MINUS'),
-    ('left', 'TIMES', 'DIVIDE', 'DIV', 'MOD'),
-    ('right', 'UMINUS', 'NOT'),  # Operadores unários
+    ('nonassoc', 'THEN'),
+    ('nonassoc', 'ELSE'),
 )
 
 # ===== REGRAS GRAMATICAIS =====
@@ -208,8 +206,8 @@ def p_assignment_statement(p):
 
 # Comando if
 def p_if_statement(p):
-    '''if_statement : IF expression THEN statement ELSE statement
-                    | IF expression THEN statement'''
+    '''if_statement : IF expr_bool THEN statement ELSE statement
+                    | IF expr_bool THEN statement'''
     if len(p) == 5:  # sem else
         p[0] = ASTNode('if_statement', [p[2], p[4]])
     else:  # com else
@@ -218,7 +216,7 @@ def p_if_statement(p):
 
 # Comando while
 def p_while_statement(p):
-    '''while_statement : WHILE expression DO statement'''
+    '''while_statement : WHILE expr_bool DO statement'''
     p[0] = ASTNode('while_statement', [p[2], p[4]])
     p[0].line = p.lineno(1)
 
@@ -226,7 +224,7 @@ def p_while_statement(p):
 def p_for_statement(p):
     '''for_statement : FOR ID ASSIGN expression TO expression DO statement
                      | FOR ID ASSIGN expression DOWNTO expression DO statement'''
-    direction = 'to' if p[5] == 'to' else 'downto'
+    direction = 'to' if p[5] == 'TO' else 'downto'
     p[0] = ASTNode('for_statement', [p[4], p[6], p[8]], [p[2], direction])
     p[0].line = p.lineno(1)
 
@@ -306,58 +304,108 @@ def p_variable(p):
         p[0] = ASTNode('array_access', [p[3]], p[1])
     p[0].line = p.lineno(1)
 
-# Expressões
-def p_expression_binop(p):
-    '''expression : expression PLUS expression
-                  | expression MINUS expression
-                  | expression TIMES expression
-                  | expression DIVIDE expression
-                  | expression DIV expression
-                  | expression MOD expression
-                  | expression EQ expression
-                  | expression NEQ expression
-                  | expression LT expression
-                  | expression GT expression
-                  | expression LTE expression
-                  | expression GTE expression
-                  | expression AND expression
-                  | expression OR expression'''
-    p[0] = ASTNode('binary_op', [p[1], p[3]], p[2])
-    p[0].line = p.lineno(2)
+# ===== IMPLEMENTAÇÃO DA GRAMÁTICA DE EXPRESSÕES CONFORME ESPECIFICADO PELO PROFESSOR =====
 
-def p_expression_unary(p):
-    '''expression : MINUS expression %prec UMINUS
-                  | NOT expression'''
+# ExprBool : Expr
+#          | Expr OpRel Expr
+def p_expr_bool(p):
+    '''expr_bool : expression
+                 | expression op_rel expression'''
+    if len(p) == 2:
+        p[0] = p[1]
+    else:
+        p[0] = ASTNode('binary_op', [p[1], p[3]], p[2])
+        p[0].line = p.lineno(2)
+
+# OpRel : EQ | NE | LT | LE | GT | GE
+def p_op_rel(p):
+    '''op_rel : EQ
+              | NEQ
+              | LT
+              | LTE
+              | GT
+              | GTE'''
+    p[0] = p[1]
+
+# Expr : Termo
+#      | Expr OpAd Termo
+def p_expression(p):
+    '''expression : termo
+                  | expression op_ad termo'''
+    if len(p) == 2:
+        p[0] = p[1]
+    else:
+        p[0] = ASTNode('binary_op', [p[1], p[3]], p[2])
+        p[0].line = p.lineno(2)
+
+# OpAd : MAIS | MENOS | OU
+def p_op_ad(p):
+    '''op_ad : PLUS
+             | MINUS
+             | OR'''
+    p[0] = p[1]
+
+# Termo : Fator
+#       | Termo OpMul Fator
+def p_termo(p):
+    '''termo : fator
+             | termo op_mul fator'''
+    if len(p) == 2:
+        p[0] = p[1]
+    else:
+        p[0] = ASTNode('binary_op', [p[1], p[3]], p[2])
+        p[0].line = p.lineno(2)
+
+# OpMul : VEZES | DIV | AND
+def p_op_mul(p):
+    '''op_mul : TIMES
+              | DIV
+              | DIVIDE
+              | AND'''
+    p[0] = p[1]
+
+# Fator : Const
+#       | Var
+#       | "(" ExprBool ")"
+#       | FuncCall
+def p_fator(p):
+    '''fator : const
+             | variable
+             | LPAREN expr_bool RPAREN
+             | func_call
+             | unary_op'''
+    if len(p) == 2:
+        p[0] = p[1]
+    else:
+        p[0] = p[2]  # Para o caso de parênteses
+
+# Unary operators
+def p_unary_op(p):
+    '''unary_op : MINUS fator
+                | NOT fator'''
     p[0] = ASTNode('unary_op', [p[2]], p[1])
     p[0].line = p.lineno(1)
 
-def p_expression_group(p):
-    '''expression : LPAREN expression RPAREN'''
-    p[0] = p[2]
-
-def p_expression_number(p):
-    '''expression : INTEGER_CONST
-                  | REAL_CONST'''
-    p[0] = ASTNode('number', [], p[1])
+# Const : INT | REAL | STRING
+def p_const(p):
+    '''const : INTEGER_CONST
+             | REAL_CONST
+             | STRING_CONST
+             | TRUE
+             | FALSE'''
+    if p[1] in ['true', 'false', 'TRUE', 'FALSE']:
+        p[0] = ASTNode('boolean', [], p[1])
+    elif isinstance(p[1], int):
+        p[0] = ASTNode('number', [], p[1])
+    elif isinstance(p[1], float):
+        p[0] = ASTNode('number', [], p[1])
+    else:
+        p[0] = ASTNode('string', [], p[1])
     p[0].line = p.lineno(1)
 
-def p_expression_string(p):
-    '''expression : STRING_CONST'''
-    p[0] = ASTNode('string', [], p[1])
-    p[0].line = p.lineno(1)
-
-def p_expression_boolean(p):
-    '''expression : TRUE
-                  | FALSE'''
-    p[0] = ASTNode('boolean', [], p[1])
-    p[0].line = p.lineno(1)
-
-def p_expression_variable(p):
-    '''expression : variable'''
-    p[0] = p[1]
-
-def p_expression_function_call(p):
-    '''expression : ID LPAREN argument_list RPAREN'''
+# FuncCall : ID "(" Args ")"
+def p_func_call(p):
+    '''func_call : ID LPAREN argument_list RPAREN'''
     p[0] = ASTNode('function_call', [p[3]], p[1])
     p[0].line = p.lineno(1)
 
