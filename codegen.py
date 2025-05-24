@@ -380,16 +380,43 @@ class CodeGenerator:
             self.code.append(f"LOAD {var_name}")
             self.code.append(f"STORE {temp}, POP")
             return temp
-        
         elif expr_node.type == 'array_access':
-            # Acesso a array
-            array_name = expr_node.value
-            index_result = self.generate_expression(expr_node.children[0])
+            var_name = expr_node.value
+            index_node = expr_node.children[0]
+            
+            # Verifica o tipo da variável
+            var_symbol = self.symbol_table.lookup(var_name)
+            
+            if var_symbol and var_symbol.type == 'string':
+                # Acesso a caractere de string
+                index_result = self.generate_expression(index_node)
+                temp = self.new_temp()
+                self.code.append(f"# Acesso a caractere de string: {var_name}[{index_result}]")
+                self.code.append(f"LOAD {var_name}")
+                self.code.append(f"LOAD {index_result}")
+                self.code.append(f"STRING_CHAR")  # Instrução para acessar caractere
+                self.code.append(f"STORE {temp}, POP")
+                return temp
+            else:
+                # Acesso a array normal
+                index_result = self.generate_expression(index_node)
+                temp = self.new_temp()
+                self.code.append(f"LOAD_ARRAY {var_name}, {index_result}")
+                self.code.append(f"STORE {temp}, POP")
+                return temp
+        
+        elif expr_node.type == 'length_call':
+            arg_node = expr_node.children[0]
+            arg_result = self.generate_expression(arg_node)
+            
+            # Gera código para obter o tamanho
             temp = self.new_temp()
-            self.code.append(f"LOAD_ARRAY {array_name}, {index_result}")
+            self.code.append(f"# Chamada de função length()")
+            self.code.append(f"LOAD {arg_result}")
+            self.code.append(f"STRING_LENGTH")  # Instrução para obter tamanho
             self.code.append(f"STORE {temp}, POP")
             return temp
-        
+
         elif expr_node.type == 'function_call':
             # Chamada de função
             func_name = expr_node.value

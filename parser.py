@@ -380,6 +380,16 @@ def p_fator(p):
     else:
         p[0] = p[2]  # Para o caso de parênteses
 
+def p_fator_string_access(p):
+    '''fator : ID LBRACKET expr_bool RBRACKET'''
+    p[0] = ASTNode('string_access', [p[3]], p[1])
+    p[0].line = p.lineno(1)
+
+def p_fator_length(p):
+    '''fator : LENGTH LPAREN expr_bool RPAREN'''
+    p[0] = ASTNode('length_call', [p[3]], 'length')
+    p[0].line = p.lineno(1)
+    
 # Unary operators
 def p_unary_op(p):
     '''unary_op : MINUS fator

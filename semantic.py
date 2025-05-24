@@ -410,28 +410,50 @@ class SemanticAnalyzer:
             array_name = expr_node.value
             index_node = expr_node.children[0]
             
-            # Verifica se o array existe
-            array_symbol = self.symbol_table.lookup(array_name)
-            if not array_symbol:
-                self.errors.append(f"Erro na linha {getattr(expr_node, 'line', 0)}: Array '{array_name}' não declarado")
+            # Verifica se a variável existe
+            var_symbol = self.symbol_table.lookup(array_name)
+            if not var_symbol:
+                self.errors.append(f"Erro na linha {getattr(expr_node, 'line', 0)}: Variável '{array_name}' não declarada")
                 return None
             
-            # Verifica se é realmente um array
-            if not array_symbol.array_dims:
-                self.errors.append(f"Erro na linha {getattr(expr_node, 'line', 0)}: '{array_name}' não é um array")
-                return None
+            # Se for uma string, trata como acesso a caractere
+            if var_symbol.type == 'string':
+                # Verifica se o índice é inteiro
+                index_type = self.check_expression_type(index_node)
+                if index_type is not None and index_type != 'integer':
+                    self.errors.append(f"Erro na linha {getattr(expr_node, 'line', 0)}: Índice de string deve ser inteiro, encontrado '{index_type}'")
+                # Em Pascal, um caractere de string é tratado como string de tamanho 1
+                return 'string'
             
-            # Verifica se o índice é inteiro
-            index_type = self.check_expression_type(index_node)
-            if index_type is not None and index_type != 'integer':
-                self.errors.append(f"Erro na linha {getattr(expr_node, 'line', 0)}: Índice de array deve ser inteiro, encontrado '{index_type}'")
+            # Se for um array
+            elif var_symbol.array_dims:
+                # Verifica se o índice é inteiro
+                index_type = self.check_expression_type(index_node)
+                if index_type is not None and index_type != 'integer':
+                    self.errors.append(f"Erro na linha {getattr(expr_node, 'line', 0)}: Índice de array deve ser inteiro, encontrado '{index_type}'")
+                
+                # Retorna o tipo do elemento do array
+                if 'array of' in var_symbol.type:
+                    return var_symbol.type.split(' of ')[1]
+                else:
+                    return 'integer'
             
-            # Retorna o tipo do elemento do array
-            if 'array of' in array_symbol.type:
-                return array_symbol.type.split(' of ')[1]  # Exemplo: "array of integer" -> "integer"
+            # Se não for nem string nem array
             else:
-                return 'integer'  # Padrão para arrays simples
-        
+                self.errors.append(f"Erro na linha {getattr(expr_node, 'line', 0)}: '{array_name}' não é um array nem uma string")
+                return None
+            
+        # Em semantic.py, no método check_expression_type
+        elif expr_node.type == 'length_call':
+                arg_node = expr_node.children[0]
+                arg_type = self.check_expression_type(arg_node)
+
+                if arg_type is not None and arg_type != 'string':
+                    self.errors.append(f"Erro na linha {getattr(expr_node, 'line', 0)}: Função length() requer argumento string, encontrado '{arg_type}'")
+                    return None
+
+                return 'integer'  # length() retorna um inteiro
+
         elif expr_node.type == 'function_call':
             func_name = expr_node.value
             
