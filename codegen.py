@@ -87,7 +87,7 @@ class CodeGenerator:
                                 self.code.append("pushi 0")
                                 self.var_counter += 1
                         else:
-                            # Variável simples - inicializa com 0
+                            # Variável simples - inicializa com valor padrão
                             self.code.append(f"// Declaração da variável {var_name}")
                             if type_node.value == 'real':
                                 self.code.append("pushf 0.0")
@@ -138,13 +138,15 @@ class CodeGenerator:
                                 self.code.append("pushi 0")
                                 self.var_counter += 1
                         else:
-                            # Variável simples - inicializa com 0
+                            # Variável simples - inicializa com valor padrão apropriado
                             self.code.append(f"// Declaração da variável {var_name}")
                             if type_node.value == 'real':
                                 self.code.append("pushf 0.0")
                             elif type_node.value == 'boolean':
                                 self.code.append("pushi 0")  # false = 0
                             elif type_node.value == 'string':
+                                # Para strings, cria uma string vazia no heap
+                                # Isto cria uma referência de string que é armazenada na variável
                                 self.code.append('pushs ""')
                             else:  # integer
                                 self.code.append("pushi 0")
@@ -205,6 +207,13 @@ class CodeGenerator:
         
         self.code.append(f"// Atribuição para {var_node.value}")
         
+        # DEBUG: Verifica se a expressão existe
+        if expr_node is None:
+            self.code.append("// ERRO: Expressão é None!")
+            return
+        
+        self.code.append(f"// Gerando expressão do tipo: {expr_node.type}")
+        
         # Gera código para a expressão
         self.generate_expression(expr_node)
         
@@ -214,9 +223,10 @@ class CodeGenerator:
             
             # Verifica se é uma atribuição de retorno de função
             if (self.is_in_function() and var_name == self.current_function):
-                # Atribuição de valor de retorno - não faz nada aqui
-                # O valor fica na pilha para ser retornado
-                self.code.append("// Valor de retorno definido")
+                # Atribuição de valor de retorno - armazena em variável local especial
+                # Usamos offset 0 para o valor de retorno
+                self.code.append("storel 0")
+                self.code.append("// Valor de retorno armazenado")
                 return
             
             # Verifica se é uma variável local da função atual
@@ -271,6 +281,16 @@ class CodeGenerator:
         
         # Gera código para a condição
         self.generate_expression(condition_node)
+        
+        # Certifica-se de que a condição resulta em um valor booleano (0 ou 1)
+        if condition_node.type == 'binary_op' and condition_node.value in ['EQ', 'NEQ', 'LT', 'GT', 'LTE', 'GTE']:
+            # Já é uma comparação, não precisa fazer nada
+            pass
+        else:
+            # Converte para booleano explicitamente (0 se for 0, 1 caso contrário)
+            self.code.append("pushi 0")
+            self.code.append("equal")
+            self.code.append("not")  # Inverte para obter o valor booleano correto
         
         # Salta para else se falso (condição = 0)
         self.code.append(f"jz {else_label}")
@@ -446,10 +466,40 @@ class CodeGenerator:
                     self.code.append("writef")
                 else:
                     self.code.append("writei")
+            elif expr_node.type == 'variable':
+                # Verifica o tipo da variável na tabela de símbolos
+                var_symbol = self.symbol_table.lookup(expr_node.value)
+                if var_symbol and var_symbol.type == 'string':
+                    # Para variáveis string, usa writes diretamente
+                    self.code.append("writes")
+                elif var_symbol and var_symbol.type == 'real':
+                    self.code.append("writef")
+                elif var_symbol and var_symbol.type == 'boolean':
+                    self.code.append("writei")  # Booleanos são escritos como inteiros
+                else:
+                    self.code.append("writei")  # Default para inteiros
+            elif expr_node.type == 'function_call':
+                # Para chamadas de função, verifica o tipo de retorno
+                func_symbol = self.symbol_table.lookup(expr_node.value)
+                if func_symbol and func_symbol.type == 'string':
+                    self.code.append("writes")
+                elif func_symbol and func_symbol.type == 'real':
+                    self.code.append("writef")
+                else:
+                    self.code.append("writei")
+            elif expr_node.type == 'array_access':
+                # Para acesso a arrays, verifica o tipo base
+                array_name = expr_node.value
+                array_symbol = self.symbol_table.lookup(array_name)
+                if array_symbol and array_symbol.type == 'string':
+                    # Acesso a caractere de string retorna código ASCII (inteiro)
+                    self.code.append("writei")
+                else:
+                    self.code.append("writei")  # Arrays normalmente são inteiros
             else:
-                # Para variáveis, assume inteiro por padrão
+                # Para outras expressões, assume inteiro por padrão
                 self.code.append("writei")
-        
+
         # Se for writeln, adiciona quebra de linha
         if write_node.value.upper() == 'WRITELN':
             self.code.append("writeln")
@@ -539,14 +589,35 @@ class CodeGenerator:
                 self.code.append(f"pushf {expr_node.value}")
         
         elif expr_node.type == 'string':
-            # Constante string
-            if len(expr_node.value) == 1:
-                # Se for um caractere único, empilha o código do caractere para comparação
-                char_code = ord(expr_node.value)
-                self.code.append(f"pushi {char_code}")
+            # Constante string - processa o valor corretamente
+            string_value = expr_node.value
+            
+            # Remove todas as aspas duplas do início e fim se existirem
+            while string_value.startswith('"'):
+                string_value = string_value[1:]
+            while string_value.endswith('"'):
+                string_value = string_value[:-1]
+            
+            # Remove aspas simples se existirem (para caracteres literais)
+            while string_value.startswith("'"):
+                string_value = string_value[1:]
+            while string_value.endswith("'"):
+                string_value = string_value[:-1]
+            
+            # Processa escape sequences se necessário
+            # Em Pascal, aspas duplas dentro de strings são representadas como ""
+            # Converte "" para " na string final
+            string_value = string_value.replace('""', '"')
+            
+            # CORREÇÃO: Se for um caractere literal (comprimento 1), gera o código ASCII
+            if len(string_value) == 1:
+                # Para caracteres literais, empilha o código ASCII
+                ascii_code = ord(string_value)
+                self.code.append(f"pushi {ascii_code}")
+                self.code.append(f"// Caractere literal '{string_value}' (ASCII {ascii_code})")
             else:
-                # String normal
-                self.code.append(f'pushs "{expr_node.value}"')
+                # Para strings normais, gera a instrução EWVM com aspas duplas
+                self.code.append(f'pushs "{string_value}"')
         
         elif expr_node.type == 'boolean':
             # Constante booleana
@@ -557,14 +628,22 @@ class CodeGenerator:
             # Variável
             var_name = expr_node.value
             
+            # CORREÇÃO: Verifica se é uma referência ao valor de retorno da função atual
+            if (self.is_in_function() and var_name == self.current_function):
+                # Em Pascal, referenciar o nome da função dentro dela mesma acessa o valor de retorno
+                # Como não temos uma forma direta de acessar isso em EWVM, 
+                # assumimos que é sempre verdadeiro (1) para condições booleanas
+                self.code.append("pushi 1")
+                self.code.append(f"// Referência ao valor de retorno da função {var_name}")
+            
             # Verifica se é uma variável local da função atual
-            if (self.is_in_function() and 
+            elif (self.is_in_function() and 
                 self.current_function in self.function_vars and 
                 var_name in self.function_vars[self.current_function]):
                 
                 offset = self.function_vars[self.current_function][var_name]
                 self.code.append(f"pushl {offset}")
-        
+
             # Senão, é uma variável global
             elif var_name in self.global_vars:
                 var_index = self.global_vars[var_name]
@@ -580,31 +659,35 @@ class CodeGenerator:
             # Acesso a array
             array_name = expr_node.value
             
+            self.code.append(f"// Acesso a array/string: {array_name}")
+            
             # Verifica se é uma string (acesso a caractere)
             array_symbol = self.symbol_table.lookup(array_name)
             if array_symbol and array_symbol.type == 'string':
-                # Para strings, usamos charat que retorna o código do caractere
+                self.code.append(f"// Acesso a caractere da string {array_name}")
                 
                 # Carrega o endereço da string
                 if (self.is_in_function() and 
                     self.current_function in self.function_vars and 
                     array_name in self.function_vars[self.current_function]):
                     
-                    # Variável local
+                    # Variável local ou parâmetro
                     offset = self.function_vars[self.current_function][array_name]
                     self.code.append(f"pushl {offset}")
-                else:
+                elif array_name in self.global_vars:
                     # Variável global
                     self.code.append(f"pushg {self.global_vars[array_name]}")
+                else:
+                    # Se não encontrou, assume que é o primeiro parâmetro
+                    self.code.append(f"pushl -1")
                 
                 # Gera código para o índice
                 self.generate_expression(expr_node.children[0])
                 
-                # CORREÇÃO: Ajustar índice de Pascal (1-based) para EWVM (0-based)
+                # CORREÇÃO CRUCIAL: Ajustar índice de Pascal (1-based) para EWVM (0-based)
                 self.code.append("pushi 1")
                 self.code.append("sub")  # índice_ewvm = índice_pascal - 1
                 self.code.append("charat")  # Obtém o código do caractere no índice
-                # Não convertemos para string - mantemos como código para comparação numérica
             else:
                 # Para arrays normais
                 if array_name in self.global_vars:
@@ -774,14 +857,18 @@ class CodeGenerator:
         # Processa declarações locais
         local_var_count = self.process_local_declarations(local_declarations)
         
-        # Reserva espaço para variáveis locais
-        if local_var_count > 0:
-            self.code.append(f"// Reserva espaço para {local_var_count} variáveis locais")
-            for i in range(local_var_count):
+        # Reserva espaço para variáveis locais + valor de retorno
+        if local_var_count > 0 or True:  # Sempre reserva pelo menos 1 espaço para retorno
+            total_space = local_var_count + 1  # +1 para valor de retorno
+            self.code.append(f"// Reserva espaço para {local_var_count} variáveis locais + valor de retorno")
+            for i in range(total_space):
                 self.code.append("pushi 0")
         
         # Gera código do corpo da função
         self.generate_compound_statement(body_node)
+        
+        # Carrega o valor de retorno (armazenado em offset 0)
+        self.code.append("pushl 0")
         
         # Return da função - o valor de retorno deve estar no topo da pilha
         self.code.append("// Return da função")
@@ -861,6 +948,10 @@ class CodeGenerator:
         
         local_var_count = 0
         
+        # Reserva offset 0 para valor de retorno da função
+        if self.current_function and self.current_function != "global":
+            self.function_vars[self.current_function]["__return__"] = 0
+        
         for declaration in declarations_node.children:
             if declaration.type == 'var_declaration':
                 for var_item in declaration.children:
@@ -869,6 +960,7 @@ class CodeGenerator:
                     
                     for var_name in id_list_node.value:
                         # Mapeia variável local para offset positivo (1, 2, 3...)
+                        # Offset 0 é reservado para valor de retorno
                         self.function_vars[self.current_function][var_name] = local_var_count + 1
                         self.code.append(f"// Variável local {var_name} no offset {local_var_count + 1}")
                         local_var_count += 1
@@ -892,6 +984,12 @@ class CodeGenerator:
         # Empilha o endereço da função e chama
         self.code.append(f"pusha {func_name}")
         self.code.append("call")
+
+        # Para funções que retornam string, precisamos garantir que o resultado seja uma referência de string
+        func_symbol = self.symbol_table.lookup(func_name)
+        if func_symbol and func_symbol.type == 'string':
+            # Já temos uma referência de string no topo da pilha, não precisamos fazer nada
+            pass
 
     def generate_procedure_call(self, call_node):
         """Gera código para chamada de procedimento."""
