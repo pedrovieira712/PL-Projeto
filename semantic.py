@@ -422,8 +422,8 @@ class SemanticAnalyzer:
                 index_type = self.check_expression_type(index_node)
                 if index_type is not None and index_type != 'integer':
                     self.errors.append(f"Erro na linha {getattr(expr_node, 'line', 0)}: Índice de string deve ser inteiro, encontrado '{index_type}'")
-                # Em Pascal, um caractere de string é tratado como string de tamanho 1
-                return 'string'
+                # Em Pascal, um caractere de string é tratado como integer (código ASCII)
+                return 'integer'
             
             # Se for um array
             elif var_symbol.array_dims:
@@ -570,6 +570,14 @@ class SemanticAnalyzer:
         if type1 == 'real' and type2 == 'integer':
             return True
         
+        # Para strings e caracteres (representados como integer em Pascal)
+        # Caractere individual pode ser tratado como integer
+        if type1 == 'integer' and type2 == 'string':
+            return False  # String não pode ser atribuída a integer diretamente
+        
+        if type1 == 'string' and type2 == 'integer':
+            return False  # Integer não pode ser atribuído a string diretamente
+        
         return False
     
     def evaluate_constant_expression(self, expr_node):
@@ -636,10 +644,4 @@ if __name__ == "__main__":
         analyzer.symbol_table.print_table()
         analyzer.print_errors()
         analyzer.print_warnings()
-        
-        if result:
-            print("\nAnálise semântica concluída com sucesso!")
-        else:
-            print("\nAnálise semântica falhou.")
-    else:
-        print("Falha no parsing")
+

@@ -23,8 +23,8 @@ class Symbol:
 
 class SymbolTable:
     def __init__(self):
-        self.symbols = {}       # Dicionário de símbolos
-        self.scopes = ["global"] # Pilha de escopos
+        self.symbols = {}       
+        self.scopes = ["global"] 
         self.current_scope = "global"
     
     def enter_scope(self, scope_name):
@@ -45,11 +45,9 @@ class SymbolTable:
         """Adiciona um símbolo à tabela."""
         key = f"{self.current_scope}.{name}"
         
-        # Verifica se o símbolo já existe no escopo atual
         if key in self.symbols:
             return False
         
-        # Adiciona o símbolo
         self.symbols[key] = Symbol(name, type, kind, self.current_scope, line, value)
         return True
     
@@ -60,11 +58,10 @@ class SymbolTable:
         if key in self.symbols:
             return self.symbols[key]
         
-        # Se não encontrou e não está restrito ao escopo atual, procura nos escopos superiores
         if not current_scope_only:
             scope = self.current_scope
             while "." in scope:
-                scope = scope.rsplit(".", 1)[0]  # Remove o último componente do escopo
+                scope = scope.rsplit(".", 1)[0]  
                 key = f"{scope}.{name}"
                 if key in self.symbols:
                     return self.symbols[key]
@@ -94,37 +91,5 @@ class SymbolTable:
         for key, symbol in sorted(self.symbols.items()):
             print(f"{key}: {symbol}")
 
-# Exemplo de uso
 if __name__ == "__main__":
-    # Criar uma tabela de símbolos
-    table = SymbolTable()
-    
-    # Adicionar alguns símbolos
-    table.add_symbol("x", "integer", "variable", 5)
-    table.add_symbol("y", "real", "variable", 6)
-    
-    # Entrar em um novo escopo
-    table.enter_scope("function1")
-    
-    # Adicionar símbolos no novo escopo
-    table.add_symbol("z", "boolean", "variable", 10)
-    table.add_symbol("calc", "integer", "function", 9)
-    
-    # Adicionar parâmetros à função
-    table.add_parameter("calc", "a", "integer")
-    table.add_parameter("calc", "b", "integer")
-    
-    # Imprimir a tabela
-    table.print_table()
-    
-    # Procurar símbolos
-    print("\n=== PROCURANDO SÍMBOLOS ===")
-    print(f"Procurando 'x': {table.lookup('x')}")
-    print(f"Procurando 'z': {table.lookup('z')}")
-    print(f"Procurando 'w': {table.lookup('w')}")
-    
-    # Sair do escopo
-    table.exit_scope()
-    
-    # Verificar se ainda podemos acessar 'z'
-    print(f"Procurando 'z' após sair do escopo: {table.lookup('z')}")
+    pass

@@ -1,15 +1,12 @@
-# lexer_corrected.py - Analisador léxico para Pascal Standard (VERSÃO CORRIGIDA)
-# Seguindo as diretrizes do professor - sem dicionário de palavras reservadas
 import ply.lex as lex
 
-# Lista de tokens
 tokens = (
     # Palavras reservadas
     'PROGRAM', 'BEGIN', 'END', 'VAR', 'INTEGER', 'REAL', 'BOOLEAN', 'STRING',
     'ARRAY', 'OF', 'IF', 'THEN', 'ELSE', 'WHILE', 'DO', 'FOR', 'TO', 'DOWNTO',
     'FUNCTION', 'PROCEDURE', 'CONST', 'TYPE', 'DIV', 'MOD', 'AND',
     'OR', 'NOT', 'TRUE', 'FALSE', 'READLN', 'WRITELN', 'READ', 'WRITE',
-    'LENGTH',  # Adicionado token LENGTH
+    'LENGTH',
     
     # Identificadores e literais
     'ID', 'INTEGER_CONST', 'REAL_CONST', 'STRING_CONST',
@@ -21,147 +18,148 @@ tokens = (
     'LPAREN', 'RPAREN', 'LBRACKET', 'RBRACKET', 'COMMA', 'SEMICOLON', 'COLON', 'DOT', 'DOTDOT'
 )
 
-# IMPORTANTE: A ordem das definições importa no PLY!
-# As palavras reservadas devem vir ANTES da regra geral de identificadores
-
 # ===== PALAVRAS RESERVADAS - Definidas com ER específicas (case-insensitive) =====
 
-def t_PROGRAM(t):
-    r'[pP][rR][oO][gG][rR][aA][mM]'
-    return t
+def t_PROGRAM(p):
+    r'(?i)program(?![a-zA-Z0-9_])'
+    return p
 
-def t_PROCEDURE(t):
-    r'[pP][rR][oO][cC][eE][dD][uU][rR][eE]'
-    return t
+def t_PROCEDURE(p):
+    r'(?i)procedure(?![a-zA-Z0-9_])'
+    return p
 
-def t_FUNCTION(t):
-    r'[fF][uU][nN][cC][tT][iI][oO][nN]'
-    return t
+def t_FUNCTION(p):
+    r'(?i)function(?![a-zA-Z0-9_])'
+    return p
 
-def t_BEGIN(t):
-    r'[bB][eE][gG][iI][nN]'
-    return t
+def t_BEGIN(p):
+    r'(?i)begin(?![a-zA-Z0-9_])'
+    return p
 
-def t_END(t):
-    r'[eE][nN][dD]'
-    return t
+def t_END(p):
+    r'(?i)end(?![a-zA-Z0-9_])'
+    return p
 
-def t_CONST(t):
-    r'[cC][oO][nN][sS][tT]'
-    return t
+def t_CONST(p):
+    r'(?i)const(?![a-zA-Z0-9_])'
+    return p
 
-def t_TYPE(t):
-    r'[tT][yY][pP][eE]'
-    return t
+def t_TYPE(p):
+    r'(?i)type(?![a-zA-Z0-9_])'
+    return p
 
-def t_VAR(t):
-    r'[vV][aA][rR]'
-    return t
+def t_VAR(p):
+    r'(?i)var(?![a-zA-Z0-9_])'
+    return p
 
-def t_INTEGER(t):
-    r'[iI][nN][tT][eE][gG][eE][rR]'
-    return t
+def t_INTEGER(p):
+    r'(?i)integer(?![a-zA-Z0-9_])'
+    return p
 
-def t_REAL(t):
-    r'[rR][eE][aA][lL]'
-    return t
+def t_REAL(p):
+    r'(?i)real(?![a-zA-Z0-9_])'
+    return p
 
-def t_BOOLEAN(t):
-    r'[bB][oO][oO][lL][eE][aA][nN]'
-    return t
+def t_BOOLEAN(p):
+    r'(?i)boolean(?![a-zA-Z0-9_])'
+    return p
 
-def t_STRING(t):
-    r'[sS][tT][rR][iI][nN][gG]'
-    return t
+def t_STRING(p):
+    r'(?i)string(?![a-zA-Z0-9_])'
+    return p
 
-def t_ARRAY(t):
-    r'[aA][rR][rR][aA][yY]'
-    return t
+def t_ARRAY(p):
+    r'(?i)array(?![a-zA-Z0-9_])'
+    return p
 
-def t_OF(t):
-    r'[oO][fF]'
-    return t
+def t_OF(p):
+    r'(?i)of(?![a-zA-Z0-9_])'
+    return p
 
-def t_IF(t):
-    r'[iI][fF]'
-    return t
+def t_IF(p):
+    r'(?i)if(?![a-zA-Z0-9_])'
+    return p
 
-def t_THEN(t):
-    r'[tT][hH][eE][nN]'
-    return t
+def t_THEN(p):
+    r'(?i)then(?![a-zA-Z0-9_])'
+    return p
 
-def t_ELSE(t):
-    r'[eE][lL][sS][eE]'
-    return t
+def t_ELSE(p):
+    r'(?i)else(?![a-zA-Z0-9_])'
+    return p
 
-def t_WHILE(t):
-    r'[wW][hH][iI][lL][eE]'
-    return t
+def t_WHILE(p):
+    r'(?i)while(?![a-zA-Z0-9_])'
+    return p
 
-def t_DOWNTO(t):
-    r'[dD][oO][wW][nN][tT][oO]'
-    return t
+def t_DOWNTO(p):
+    r'(?i)downto(?![a-zA-Z0-9_])'
+    return p
 
-def t_DO(t):
-    r'[dD][oO]'
-    return t
+def t_DO(p):
+    r'(?i)do(?![a-zA-Z0-9_])'
+    return p
 
-def t_FOR(t):
-    r'[fF][oO][rR]'
-    return t
+def t_FOR(p):
+    r'(?i)for(?![a-zA-Z0-9_])'
+    return p
 
-def t_TO(t):
-    r'[tT][oO]'
-    return t
+def t_TO(p):
+    r'(?i)to(?![a-zA-Z0-9_])'
+    return p
 
-def t_DIV(t):
-    r'[dD][iI][vV]'
-    return t
+def t_DIV(p):
+    r'(?i)div(?![a-zA-Z0-9_])'
+    return p
 
-def t_MOD(t):
-    r'[mM][oO][dD]'
-    return t
+def t_MOD(p):
+    r'(?i)mod(?![a-zA-Z0-9_])'
+    return p
 
-def t_AND(t):
-    r'[aA][nN][dD]'
-    return t
+def t_AND(p):
+    r'(?i)and(?![a-zA-Z0-9_])'
+    return p
 
-def t_OR(t):
-    r'[oO][rR]'
-    return t
+def t_OR(p):
+    r'(?i)or(?![a-zA-Z0-9_])'
+    return p
 
-def t_NOT(t):
-    r'[nN][oO][tT]'
-    return t
+def t_NOT(p):
+    r'(?i)not(?![a-zA-Z0-9_])'
+    return p
 
-def t_TRUE(t):
-    r'[tT][rR][uU][eE]'
-    return t
+def t_TRUE(p):
+    r'(?i)true(?![a-zA-Z0-9_])'
+    return p
 
-def t_FALSE(t):
-    r'[fF][aA][lL][sS][eE]'
-    return t
+def t_FALSE(p):
+    r'(?i)false(?![a-zA-Z0-9_])'
+    return p
 
-def t_READLN(t):
-    r'[rR][eE][aA][dD][lL][nN]'
-    return t
+def t_READLN(p):
+    r'(?i)readln(?![a-zA-Z0-9_])'
+    return p
 
-def t_WRITELN(t):
-    r'[wW][rR][iI][tT][eE][lL][nN]'
-    return t
+def t_WRITELN(p):
+    r'(?i)writeln(?![a-zA-Z0-9_])'
+    return p
 
-def t_READ(t):
-    r'[rR][eE][aA][dD]'
-    return t
+def t_READ(p):
+    r'(?i)read(?![a-zA-Z0-9_])'
+    return p
 
-def t_WRITE(t):
-    r'[wW][rR][iI][tT][eE]'
-    return t
+def t_WRITE(p):
+    r'(?i)write(?![a-zA-Z0-9_])'
+    return p
 
-# Adicionado token LENGTH
-def t_LENGTH(t):
-    r'[lL][eE][nN][gG][tT][hH]'
-    return t
+def t_LENGTH(p):
+    r'(?i)length(?![a-zA-Z0-9_])'
+    return p
+
+# ===== IDENTIFICADORES - DEVE vir DEPOIS das palavras reservadas =====
+def t_ID(p):
+    r'[a-zA-Z][a-zA-Z0-9_]*'
+    return p
 
 # ===== OPERADORES E DELIMITADORES =====
 
@@ -194,41 +192,37 @@ t_DOT = r'\.'
 # ===== LITERAIS =====
 
 # Números reais (deve vir antes de inteiros)
-def t_REAL_CONST(t):
+def t_REAL_CONST(p):
     r'\d+\.\d+'
-    t.value = float(t.value)
-    return t
+    p.value = float(p.value)
+    return p
 
 # Números inteiros
-def t_INTEGER_CONST(t):
+def t_INTEGER_CONST(p):
     r'\d+'
-    t.value = int(t.value)
-    return t
+    p.value = int(p.value)
+    return p
 
 # Strings
-def t_STRING_CONST(t):
+def t_STRING_CONST(p):
     r'\'([^\']|\'\')*\''
-    # Remove as aspas e substitui '' por '
-    t.value = t.value[1:-1].replace("''", "'")
-    return t
-
-# ===== IDENTIFICADORES - DEVE vir DEPOIS das palavras reservadas =====
-def t_ID(t):
-    r'[a-zA-Z][a-zA-Z0-9_]*'
-    return t
+    raw_value = p.value[1:-1]  # Remove aspas externas
+    processed_value = raw_value.replace("''", "'")
+    p.value = processed_value
+    return p
 
 # ===== COMENTÁRIOS =====
 
 # Comentários de chaves { ... }
-def t_COMMENT_BRACE(t):
+def t_COMMENT_BRACE(p):
     r'\{[^}]*\}'
-    t.lexer.lineno += t.value.count('\n')
+    p.lexer.lineno += p.value.count('\n')
     pass  # Ignora o comentário
 
 # Comentários de parênteses (* ... *)
-def t_COMMENT_PAREN(t):
+def t_COMMENT_PAREN(p):
     r'$$\*(.|\n)*?\*$$'
-    t.lexer.lineno += t.value.count('\n')
+    p.lexer.lineno += p.value.count('\n')
     pass  # Ignora o comentário
 
 # ===== CONTROLO DE LINHAS E ESPAÇOS =====
@@ -237,15 +231,15 @@ def t_COMMENT_PAREN(t):
 t_ignore = ' \t'
 
 # Quebras de linha
-def t_newline(t):
+def t_newline(p):
     r'\n+'
-    t.lexer.lineno += len(t.value)
+    p.lexer.lineno += len(p.value)
 
 # ===== TRATAMENTO DE ERROS =====
 
-def t_error(t):
-    print(f"Erro léxico: Caractere ilegal '{t.value[0]}' na linha {t.lexer.lineno}")
-    t.lexer.skip(1)
+def t_error(p):
+    print(f"Erro léxico: Caractere ilegal '{p.value[0]}' na linha {p.lexer.lineno}")
+    p.lexer.skip(1)
 
 # ===== CONSTRUÇÃO DO LEXER =====
 
@@ -262,12 +256,15 @@ def test_lexer(data):
 
 # Exemplo de uso
 if __name__ == "__main__":
-    # Exemplo de código Pascal do projeto
+    # Teste com OrdenaParcial
     test_code = """
-    program HelloWorld;
+    program Test;
+    function OrdenaParcial(a: integer): integer;
     begin
-        writeln('Ola, Mundo!');
-        writeln(length('teste'));
+        OrdenaParcial := a;
+    end;
+    begin
+        writeln('Teste');
     end.
     """
     

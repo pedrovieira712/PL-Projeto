@@ -1,6 +1,3 @@
-# codegen.py - Gerador de código para EWVM (Educational Web Virtual Machine)
-# Versão adaptada para a VM do professor
-
 from symboltable import SymbolTable
 
 class CodeGenerator:
@@ -10,8 +7,11 @@ class CodeGenerator:
         self.label_counter = 0
         self.current_function = None
         self.global_vars = {}  # Mapeia nome da variável para índice global
-        self.local_vars = {}   # Mapeia nome da variável para índice local
+        self.local_vars = {}   # Mapeia nome da variável para índice local (por função)
+        self.function_vars = {}  # Mapeia função -> {var_name: offset}
         self.var_counter = 0   # Contador para variáveis globais
+        self.functions = {}    # Mapeia nome da função para informações
+        self.scope_stack = ["global"]  # Pilha de escopos
         
     def generate(self, ast):
         """Gera código EWVM a partir da AST."""
@@ -21,7 +21,7 @@ class CodeGenerator:
         if ast.type == 'program':
             # Primeiro, declara todas as variáveis globais
             declarations = ast.children[0]
-            self.declare_global_variables(declarations)
+            self.declare_global_variables_only(declarations)
             
             # Marca o início do programa
             self.code.append("start")
@@ -33,17 +33,38 @@ class CodeGenerator:
             
             # Finaliza o programa
             self.code.append("stop")
+            self.code.append("")
+            
+            # AGORA gera as funções DEPOIS do stop
+            self.generate_functions(declarations)
             
             return self.code
         else:
             print(f"Erro: Nó raiz não é um programa")
             return []
     
+    def enter_function_scope(self, function_name):
+        """Entra no escopo de uma função."""
+        self.scope_stack.append(function_name)
+        self.current_function = function_name
+        self.function_vars[function_name] = {}
+
+    def exit_function_scope(self):
+        """Sai do escopo de uma função."""
+        if len(self.scope_stack) > 1:
+            self.scope_stack.pop()
+            self.current_function = self.scope_stack[-1] if len(self.scope_stack) > 1 else None
+            
+    def is_in_function(self):
+        """Verifica se está dentro de uma função."""
+        return self.current_function is not None and self.current_function != "global"
+    
     def declare_global_variables(self, declarations_node):
-        """Declara variáveis globais no início do programa."""
+        """Declara variáveis globais e processa declarações de funções."""
         if declarations_node is None or declarations_node.type != 'declarations':
             return
         
+        # Primeiro passo: declara variáveis globais
         for declaration in declarations_node.children:
             if declaration.type == 'var_declaration':
                 for var_item in declaration.children:
@@ -78,9 +99,72 @@ class CodeGenerator:
                                 self.code.append("pushi 0")
                             
                             self.var_counter += 1
-        
+    
         if self.var_counter > 0:
             self.code.append("")
+        
+        # Segundo passo: gera código para funções
+        for declaration in declarations_node.children:
+            if declaration.type == 'function_declaration':
+                self.generate_function_declaration(declaration)
+            elif declaration.type == 'procedure_declaration':
+                self.generate_procedure_declaration(declaration)
+    
+    def declare_global_variables_only(self, declarations_node):
+        """Declara apenas variáveis globais, sem processar funções."""
+        if declarations_node is None or declarations_node.type != 'declarations':
+            return
+        
+        # Apenas declara variáveis globais
+        for declaration in declarations_node.children:
+            if declaration.type == 'var_declaration':
+                for var_item in declaration.children:
+                    id_list_node = var_item.children[0]
+                    type_node = var_item.children[1]
+                    
+                    for var_name in id_list_node.value:
+                        # Mapeia a variável para um índice global
+                        self.global_vars[var_name] = self.var_counter
+                        
+                        # Inicializa a variável com valor padrão
+                        if type_node.type == 'array_type':
+                            # Para arrays, inicializa cada elemento
+                            start_idx = type_node.value[0]
+                            end_idx = type_node.value[1]
+                            size = end_idx - start_idx + 1
+                            
+                            self.code.append(f"// Declaração do array {var_name}[{start_idx}..{end_idx}]")
+                            for i in range(size):
+                                self.code.append("pushi 0")
+                                self.var_counter += 1
+                        else:
+                            # Variável simples - inicializa com 0
+                            self.code.append(f"// Declaração da variável {var_name}")
+                            if type_node.value == 'real':
+                                self.code.append("pushf 0.0")
+                            elif type_node.value == 'boolean':
+                                self.code.append("pushi 0")  # false = 0
+                            elif type_node.value == 'string':
+                                self.code.append('pushs ""')
+                            else:  # integer
+                                self.code.append("pushi 0")
+                            
+                            self.var_counter += 1
+
+        if self.var_counter > 0:
+            self.code.append("")
+
+    def generate_functions(self, declarations_node):
+        """Gera código para funções e procedimentos."""
+        if declarations_node is None or declarations_node.type != 'declarations':
+            return
+        
+        # Gera código para funções
+        for declaration in declarations_node.children:
+            if declaration.type == 'function_declaration':
+                self.generate_function_declaration(declaration)
+            elif declaration.type == 'procedure_declaration':
+                self.generate_procedure_declaration(declaration)
     
     def generate_compound_statement(self, compound_node):
         """Gera código para um bloco de comandos."""
@@ -109,6 +193,10 @@ class CodeGenerator:
             self.generate_write_statement(statement_node)
         elif statement_node.type == 'read_statement':
             self.generate_read_statement(statement_node)
+        elif statement_node.type == 'procedure_call':
+            self.generate_procedure_call(statement_node)
+        elif statement_node.type == 'function_call':
+            self.generate_function_call(statement_node)
     
     def generate_assignment(self, assignment_node):
         """Gera código para uma atribuição."""
@@ -123,11 +211,29 @@ class CodeGenerator:
         # Armazena o resultado na variável
         if var_node.type == 'variable':
             var_name = var_node.value
-            if var_name in self.global_vars:
+            
+            # Verifica se é uma atribuição de retorno de função
+            if (self.is_in_function() and var_name == self.current_function):
+                # Atribuição de valor de retorno - não faz nada aqui
+                # O valor fica na pilha para ser retornado
+                self.code.append("// Valor de retorno definido")
+                return
+            
+            # Verifica se é uma variável local da função atual
+            if (self.is_in_function() and 
+                self.current_function in self.function_vars and 
+                var_name in self.function_vars[self.current_function]):
+                
+                offset = self.function_vars[self.current_function][var_name]
+                self.code.append(f"storel {offset}")
+            
+            # Senão, é uma variável global
+            elif var_name in self.global_vars:
                 var_index = self.global_vars[var_name]
                 self.code.append(f"storeg {var_index}")
             else:
                 self.code.append(f"// Erro: variável {var_name} não encontrada")
+                
         elif var_node.type == 'array_access':
             # Para arrays, precisa calcular o índice
             array_name = var_node.value
@@ -135,6 +241,15 @@ class CodeGenerator:
                 base_index = self.global_vars[array_name]
                 # Gera código para o índice do array
                 self.generate_expression(var_node.children[0])
+                
+                # CORREÇÃO: Subtrai o índice inicial do array
+                array_symbol = self.symbol_table.lookup(array_name)
+                if array_symbol and array_symbol.array_dims:
+                    start_idx = array_symbol.array_dims[0]
+                    if start_idx != 0:  # Se não começa em 0
+                        self.code.append(f"pushi {start_idx}")
+                        self.code.append("sub")  # índice_real = i - start_idx
+                
                 # Adiciona o índice base
                 self.code.append(f"pushi {base_index}")
                 self.code.append("add")
@@ -205,7 +320,7 @@ class CodeGenerator:
         self.code.append(f"{end_label}:")
         self.code.append("// Fim do ciclo while")
         self.code.append("")
-    
+
     def generate_for_statement(self, for_node):
         """Gera código para um comando for."""
         var_name = for_node.value[0]
@@ -214,66 +329,97 @@ class CodeGenerator:
         end_expr = for_node.children[1]
         body_node = for_node.children[2]
         
-        # Labels para o loop
         start_label = self.new_label("FOR")
         end_label = self.new_label("ENDFOR")
         
-        self.code.append(f"// Ciclo FOR {var_name}")
+        self.code.append(f"// Ciclo FOR {var_name} {direction}")
         
         # Inicializa a variável de controle
         self.generate_expression(start_expr)
-        if var_name in self.global_vars:
+        
+        # CORREÇÃO: Verifica se é uma variável local ou global
+        if (self.is_in_function() and 
+            self.current_function in self.function_vars and 
+            var_name in self.function_vars[self.current_function]):
+            
+            # Variável local
+            offset = self.function_vars[self.current_function][var_name]
+            self.code.append(f"storel {offset}")
+        else:
+            # Variável global
             var_index = self.global_vars[var_name]
             self.code.append(f"storeg {var_index}")
         
-        # Label do início do loop
+        # Início do loop
         self.code.append(f"{start_label}:")
         
-        # Verifica a condição do loop
-        # Para 'to': continua enquanto i <= n (sai quando i > n)
-        # Para 'downto': continua enquanto i >= n (sai quando i < n)
-        if var_name in self.global_vars:
+        # Verifica a condição de parada
+        # Carrega o valor da variável de controle
+        if (self.is_in_function() and 
+            self.current_function in self.function_vars and 
+            var_name in self.function_vars[self.current_function]):
+            
+            # Variável local
+            offset = self.function_vars[self.current_function][var_name]
+            self.code.append(f"pushl {offset}")
+        else:
+            # Variável global
             var_index = self.global_vars[var_name]
             self.code.append(f"pushg {var_index}")
         
+        # Gera código para o valor final
         self.generate_expression(end_expr)
-        
+
         if direction == 'to':
-            # Queremos continuar enquanto i <= n
-            # Então saímos quando i > n
-            self.code.append("sup")  # i > n?
-            self.code.append(f"not") # inverte: agora é i <= n
-            self.code.append(f"jz {end_label}")  # sai se i <= n for falso (ou seja, i > n)
+            # Para 'to': continua enquanto i <= n, ou seja, para quando i > n
+            self.code.append("infeq")  # i <= n?
+            self.code.append(f"jz {end_label}")  # Se i <= n é falso (i > n), sai do loop
         else:  # downto
-            # Queremos continuar enquanto i >= n
-            # Então saímos quando i < n
-            self.code.append("inf")  # i < n?
-            self.code.append(f"not") # inverte: agora é i >= n
-            self.code.append(f"jz {end_label}")  # sai se i >= n for falso (ou seja, i < n)
+            # Para 'downto': continua enquanto i >= n, ou seja, para quando i < n
+            self.code.append("supeq")  # i >= n?
+            self.code.append(f"jz {end_label}")  # Se i >= n é falso (i < n), sai do loop
         
-        # Código do corpo do loop
+        # Corpo do loop
         self.generate_statement(body_node)
         
         # Incrementa/decrementa a variável de controle
-        if var_name in self.global_vars:
+        # Carrega o valor atual
+        if (self.is_in_function() and 
+            self.current_function in self.function_vars and 
+            var_name in self.function_vars[self.current_function]):
+            
+            # Variável local
+            offset = self.function_vars[self.current_function][var_name]
+            self.code.append(f"pushl {offset}")
+        else:
+            # Variável global
             var_index = self.global_vars[var_name]
             self.code.append(f"pushg {var_index}")
         
+        # Incrementa/decrementa
         self.code.append("pushi 1")
-        
         if direction == 'to':
             self.code.append("add")
-        else:  # downto
+        else:
             self.code.append("sub")
         
-        if var_name in self.global_vars:
+        # Armazena o novo valor
+        if (self.is_in_function() and 
+            self.current_function in self.function_vars and 
+            var_name in self.function_vars[self.current_function]):
+            
+            # Variável local
+            offset = self.function_vars[self.current_function][var_name]
+            self.code.append(f"storel {offset}")
+        else:
+            # Variável global
             var_index = self.global_vars[var_name]
             self.code.append(f"storeg {var_index}")
         
-        # Volta para o início
+        # Volta para o início do loop
         self.code.append(f"jump {start_label}")
         
-        # Label do fim
+        # Fim do loop
         self.code.append(f"{end_label}:")
         self.code.append("")
     
@@ -305,7 +451,7 @@ class CodeGenerator:
                 self.code.append("writei")
         
         # Se for writeln, adiciona quebra de linha
-        if write_node.value == 'WRITELN':
+        if write_node.value.upper() == 'WRITELN':
             self.code.append("writeln")
         
         self.code.append("")
@@ -323,11 +469,60 @@ class CodeGenerator:
             if var_node.type == 'variable':
                 var_name = var_node.value
                 self.code.append("read")
-                self.code.append("atoi")  # Converte string para inteiro
                 
-                if var_name in self.global_vars:
+                # Verifica o tipo da variável para converter corretamente
+                var_symbol = self.symbol_table.lookup(var_name)
+                if var_symbol and var_symbol.type == 'string':
+                    # Para strings, não converte - o read já retorna uma referência de string
+                    pass
+                else:
+                    # Para números, converte para inteiro
+                    self.code.append("atoi")
+                
+                # Armazena o valor lido na variável
+                if (self.is_in_function() and 
+                    self.current_function in self.function_vars and 
+                    var_name in self.function_vars[self.current_function]):
+                    
+                    # Variável local
+                    offset = self.function_vars[self.current_function][var_name]
+                    self.code.append(f"storel {offset}")
+                else:
+                    # Variável global
                     var_index = self.global_vars[var_name]
                     self.code.append(f"storeg {var_index}")
+        
+            elif var_node.type == 'array_access':
+                # Para arrays, precisa calcular o endereço e armazenar
+                array_name = var_node.value
+                if array_name in self.global_vars:
+                    base_index = self.global_vars[array_name]
+                    
+                    # Calcula o endereço do array PRIMEIRO
+                    self.code.append("pushgp")  # Endereço base da pilha global
+                    self.code.append(f"pushi {base_index}")  # Índice base do array
+                    self.code.append("padd")  # Endereço base do array
+
+                    # Gera código para o índice e ajusta para o índice real
+                    self.generate_expression(var_node.children[0])
+                    
+                    # CORREÇÃO: Subtrai o índice inicial do array
+                    # Para array[1..5], quando i=1, índice real = 1-1 = 0
+                    array_symbol = self.symbol_table.lookup(array_name)
+                    if array_symbol and array_symbol.array_dims:
+                        start_idx = array_symbol.array_dims[0]
+                        if start_idx != 0:  # Se não começa em 0
+                            self.code.append(f"pushi {start_idx}")
+                            self.code.append("sub")  # índice_real = i - start_idx
+                    
+                    self.code.append("padd")  # Endereço final
+
+                    # Lê o valor DEPOIS
+                    self.code.append("read")
+                    self.code.append("atoi")  # Converte string para inteiro
+
+                    # Agora a pilha está correta: endereço (fundo) + valor (topo)
+                    self.code.append("store 0")
         
         self.code.append("")
     
@@ -345,7 +540,13 @@ class CodeGenerator:
         
         elif expr_node.type == 'string':
             # Constante string
-            self.code.append(f'pushs "{expr_node.value}"')
+            if len(expr_node.value) == 1:
+                # Se for um caractere único, empilha o código do caractere para comparação
+                char_code = ord(expr_node.value)
+                self.code.append(f"pushi {char_code}")
+            else:
+                # String normal
+                self.code.append(f'pushs "{expr_node.value}"')
         
         elif expr_node.type == 'boolean':
             # Constante booleana
@@ -355,24 +556,106 @@ class CodeGenerator:
         elif expr_node.type == 'variable':
             # Variável
             var_name = expr_node.value
-            if var_name in self.global_vars:
+            
+            # Verifica se é uma variável local da função atual
+            if (self.is_in_function() and 
+                self.current_function in self.function_vars and 
+                var_name in self.function_vars[self.current_function]):
+                
+                offset = self.function_vars[self.current_function][var_name]
+                self.code.append(f"pushl {offset}")
+        
+            # Senão, é uma variável global
+            elif var_name in self.global_vars:
                 var_index = self.global_vars[var_name]
                 self.code.append(f"pushg {var_index}")
             else:
                 self.code.append(f"// Erro: variável {var_name} não encontrada")
         
+        elif expr_node.type == 'function_call':
+            # Chamada de função
+            self.generate_function_call(expr_node)
+        
         elif expr_node.type == 'array_access':
             # Acesso a array
             array_name = expr_node.value
-            if array_name in self.global_vars:
-                base_index = self.global_vars[array_name]
+            
+            # Verifica se é uma string (acesso a caractere)
+            array_symbol = self.symbol_table.lookup(array_name)
+            if array_symbol and array_symbol.type == 'string':
+                # Para strings, usamos charat que retorna o código do caractere
+                
+                # Carrega o endereço da string
+                if (self.is_in_function() and 
+                    self.current_function in self.function_vars and 
+                    array_name in self.function_vars[self.current_function]):
+                    
+                    # Variável local
+                    offset = self.function_vars[self.current_function][array_name]
+                    self.code.append(f"pushl {offset}")
+                else:
+                    # Variável global
+                    self.code.append(f"pushg {self.global_vars[array_name]}")
+                
                 # Gera código para o índice
                 self.generate_expression(expr_node.children[0])
-                # Adiciona o índice base
-                self.code.append(f"pushi {base_index}")
-                self.code.append("add")
-                # Carrega o valor do endereço calculado
-                self.code.append("loadn")
+                
+                # CORREÇÃO: Ajustar índice de Pascal (1-based) para EWVM (0-based)
+                self.code.append("pushi 1")
+                self.code.append("sub")  # índice_ewvm = índice_pascal - 1
+                self.code.append("charat")  # Obtém o código do caractere no índice
+                # Não convertemos para string - mantemos como código para comparação numérica
+            else:
+                # Para arrays normais
+                if array_name in self.global_vars:
+                    base_index = self.global_vars[array_name]
+                    # Empilha o endereço base da pilha global
+                    self.code.append("pushgp")
+                    # Empilha o índice base do array
+                    self.code.append(f"pushi {base_index}")
+                    # Calcula endereço base + índice base
+                    self.code.append("padd")
+                    # Gera código para o índice do array
+                    self.generate_expression(expr_node.children[0])
+                    
+                    # CORREÇÃO: Subtrai o índice inicial do array
+                    if array_symbol and array_symbol.array_dims:
+                        start_idx = array_symbol.array_dims[0]
+                        if start_idx != 0:  # Se não começa em 0
+                            self.code.append(f"pushi {start_idx}")
+                            self.code.append("sub")  # índice_real = i - start_idx
+                    
+                    # Calcula endereço final
+                    self.code.append("padd")
+                    # Carrega o valor do endereço final
+                    self.code.append("load 0")
+        
+        elif expr_node.type == 'length_call':
+            # Função length() para strings
+            arg_node = expr_node.children[0]
+            
+            # CORREÇÃO: Precisamos garantir que uma referência de string esteja no topo da pilha
+            if arg_node.type == 'variable':
+                var_name = arg_node.value
+                var_symbol = self.symbol_table.lookup(var_name)
+                
+                # Verifica se é uma variável local da função atual
+                if (self.is_in_function() and 
+                    self.current_function in self.function_vars and 
+                    var_name in self.function_vars[self.current_function]):
+                    
+                    offset = self.function_vars[self.current_function][var_name]
+                    self.code.append(f"pushl {offset}")  # Carrega a referência da string
+                else:
+                    # Variável global
+                    self.code.append(f"pushg {self.global_vars[var_name]}")  # Carrega a referência da string
+            else:
+                # Para outros tipos de expressões, geramos o código normalmente
+                # Isso deve deixar uma referência de string no topo da pilha
+                self.generate_expression(arg_node)
+            
+            # Agora que temos certeza que uma referência de string está no topo da pilha, chamamos strlen
+            self.code.append("strlen")
         
         elif expr_node.type == 'binary_op':
             # Operação binária
@@ -431,7 +714,7 @@ class CodeGenerator:
                 op_upper = operator.upper()
                 if op_upper in op_map:
                     op_code = op_map[op_upper]
-            
+        
             if op_code:
                 if operator == 'NEQ' or operator == '<>':
                     self.code.append("equal")
@@ -450,7 +733,7 @@ class CodeGenerator:
                     self.code.append("supeq")
                 elif operator == '<=' or operator.upper() == 'LTE':
                     self.code.append("infeq")
-    
+
         elif expr_node.type == 'unary_op':
             # Operação unária
             operand_node = expr_node.children[0]
@@ -470,3 +753,161 @@ class CodeGenerator:
         label = f"{prefix}{self.label_counter}"
         self.label_counter += 1
         return label
+
+    def generate_function_declaration(self, function_node):
+        """Gera código para declaração de função."""
+        function_name = function_node.value
+        params_node = function_node.children[0]
+        return_type_node = function_node.children[1]
+        local_declarations = function_node.children[2]
+        body_node = function_node.children[3]
+        
+        self.code.append(f"// Função {function_name}")
+        self.code.append(f"{function_name}:")
+        
+        # Entra no escopo da função
+        self.enter_function_scope(function_name)
+        
+        # Processa parâmetros
+        param_count = self.process_function_parameters(params_node, function_name)
+        
+        # Processa declarações locais
+        local_var_count = self.process_local_declarations(local_declarations)
+        
+        # Reserva espaço para variáveis locais
+        if local_var_count > 0:
+            self.code.append(f"// Reserva espaço para {local_var_count} variáveis locais")
+            for i in range(local_var_count):
+                self.code.append("pushi 0")
+        
+        # Gera código do corpo da função
+        self.generate_compound_statement(body_node)
+        
+        # Return da função - o valor de retorno deve estar no topo da pilha
+        self.code.append("// Return da função")
+        self.code.append("return")
+        self.code.append("")
+        
+        # Sai do escopo da função
+        self.exit_function_scope()
+
+    def generate_procedure_declaration(self, procedure_node):
+        """Gera código para declaração de procedimento."""
+        procedure_name = procedure_node.value
+        params_node = procedure_node.children[0]
+        local_declarations = procedure_node.children[1]
+        body_node = procedure_node.children[2]
+        
+        self.code.append(f"// Procedimento {procedure_name}")
+        self.code.append(f"{procedure_name}:")
+        
+        # Entra no escopo do procedimento
+        self.enter_function_scope(procedure_name)
+        
+        # Processa parâmetros
+        param_count = self.process_function_parameters(params_node, procedure_name)
+        
+        # Processa declarações locais
+        local_var_count = self.process_local_declarations(local_declarations)
+        
+        # Reserva espaço para variáveis locais
+        if local_var_count > 0:
+            self.code.append(f"// Reserva espaço para {local_var_count} variáveis locais")
+            for i in range(local_var_count):
+                self.code.append("pushi 0")
+        
+        # Gera código do corpo do procedimento
+        self.generate_compound_statement(body_node)
+        
+        # Return do procedimento
+        self.code.append("// Return do procedimento")
+        self.code.append("return")
+        self.code.append("")
+        
+        # Sai do escopo do procedimento
+        self.exit_function_scope()
+
+    def process_function_parameters(self, params_node, function_name):
+        """Processa os parâmetros de uma função."""
+        if params_node.type != 'parameter_list' or len(params_node.children) == 0:
+            return 0
+        
+        param_count = 0
+        self.code.append(f"// Parâmetros da função {function_name}")
+        
+        # Conta o total de parâmetros primeiro
+        for param_node in params_node.children:
+            id_list_node = param_node.children[0]
+            param_count += len(id_list_node.value)
+        
+        # Mapeia parâmetros com offsets corretos
+        current_offset = param_count
+        for param_node in params_node.children:
+            id_list_node = param_node.children[0]
+            type_node = param_node.children[1]
+            
+            for param_name in id_list_node.value:
+                # Parâmetros têm offset negativo, começando do mais distante
+                self.function_vars[function_name][param_name] = -current_offset
+                self.code.append(f"// Parâmetro {param_name} no offset {-current_offset}")
+                current_offset -= 1
+        
+        return param_count
+
+    def process_local_declarations(self, declarations_node):
+        """Processa declarações locais de uma função."""
+        if declarations_node is None or declarations_node.type != 'declarations':
+            return 0
+        
+        local_var_count = 0
+        
+        for declaration in declarations_node.children:
+            if declaration.type == 'var_declaration':
+                for var_item in declaration.children:
+                    id_list_node = var_item.children[0]
+                    type_node = var_item.children[1]
+                    
+                    for var_name in id_list_node.value:
+                        # Mapeia variável local para offset positivo (1, 2, 3...)
+                        self.function_vars[self.current_function][var_name] = local_var_count + 1
+                        self.code.append(f"// Variável local {var_name} no offset {local_var_count + 1}")
+                        local_var_count += 1
+        
+        return local_var_count
+
+    def generate_function_call(self, call_node):
+        """Gera código para chamada de função."""
+        func_name = call_node.value
+        
+        self.code.append(f"// Chamada da função {func_name}")
+        
+        # Empilha argumentos na ordem correta (da esquerda para a direita)
+        if len(call_node.children) > 0:
+            args_node = call_node.children[0]
+            if args_node.type == 'argument_list':
+                # Empilha argumentos na ordem normal (não reversa)
+                for arg_node in args_node.children:
+                    self.generate_expression(arg_node)
+        
+        # Empilha o endereço da função e chama
+        self.code.append(f"pusha {func_name}")
+        self.code.append("call")
+
+    def generate_procedure_call(self, call_node):
+        """Gera código para chamada de procedimento."""
+        proc_name = call_node.value
+        
+        self.code.append(f"// Chamada do procedimento {proc_name}")
+        
+        # Empilha argumentos na ordem correta
+        if len(call_node.children) > 0:
+            args_node = call_node.children[0]
+            if args_node.type == 'argument_list':
+                # Empilha argumentos da direita para a esquerda
+                for arg_node in args_node.children:
+                    self.generate_expression(arg_node)
+        
+        # Empilha o endereço do procedimento e chama
+        self.code.append(f"pusha {proc_name}")
+        self.code.append("call")
+        self.code.append("")

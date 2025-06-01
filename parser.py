@@ -1,4 +1,4 @@
-# parser.py - Analisador sintático para Pascal Standard (CORRIGIDO)
+# parser.py - Analisador sintático para Pascal Standard (CORRIGIDO CONFORME PROFESSOR)
 import ply.yacc as yacc
 from lexer import tokens  # Importa os tokens do lexer
 
@@ -14,11 +14,15 @@ class ASTNode:
         return f"ASTNode({self.type}, {self.value}, {len(self.children)} children)"
 
 # Precedência e associatividade dos operadores
-# IMPORTANTE: Seguindo a gramática do professor, a precedência é implementada
-# diretamente na gramática e não através desta tabela
 precedence = (
     ('nonassoc', 'THEN'),
     ('nonassoc', 'ELSE'),
+    ('left', 'OR'),
+    ('left', 'AND'),
+    ('left', 'EQ', 'NEQ', 'LT', 'LTE', 'GT', 'GTE'),
+    ('left', 'PLUS', 'MINUS'),
+    ('left', 'TIMES', 'DIVIDE', 'DIV', 'MOD'),
+    ('right', 'UMINUS', 'NOT'),
 )
 
 # ===== REGRAS GRAMATICAIS =====
@@ -200,7 +204,7 @@ def p_statement(p):
 
 # Comando de atribuição
 def p_assignment_statement(p):
-    '''assignment_statement : variable ASSIGN expr_bool'''
+    '''assignment_statement : var ASSIGN expr_bool'''
     p[0] = ASTNode('assignment', [p[1], p[3]])
     p[0].line = p.lineno(2)
 
@@ -224,7 +228,19 @@ def p_while_statement(p):
 def p_for_statement(p):
     '''for_statement : FOR ID ASSIGN expr_bool TO expr_bool DO statement
                      | FOR ID ASSIGN expr_bool DOWNTO expr_bool DO statement'''
-    direction = 'to' if p[5] == 'TO' else 'downto'
+    
+    # Verificação robusta do tipo de loop
+    token = p[5]
+    if hasattr(token, 'type'):
+        # Se é um objeto token, usa o tipo
+        direction = 'to' if token.type == 'TO' else 'downto'
+    elif hasattr(token, 'value'):
+        # Se é um objeto token, usa o valor
+        direction = 'to' if token.value.upper() == 'TO' else 'downto'
+    else:
+        # Se é uma string direta
+        direction = 'to' if str(token).upper() == 'TO' else 'downto'
+    
     p[0] = ASTNode('for_statement', [p[4], p[6], p[8]], [p[2], direction])
     p[0].line = p.lineno(1)
 
@@ -243,8 +259,12 @@ def p_read_statement(p):
 def p_write_statement(p):
     '''write_statement : WRITE LPAREN expression_list RPAREN
                        | WRITELN LPAREN expression_list RPAREN
-                       | WRITELN'''
+                       | WRITELN
+                       | WRITE LPAREN RPAREN
+                       | WRITELN LPAREN RPAREN'''
     if len(p) == 2:  # writeln sem argumentos
+        p[0] = ASTNode('write_statement', [], p[1])
+    elif len(p) == 4:  # write() ou writeln() vazios
         p[0] = ASTNode('write_statement', [], p[1])
     else:
         p[0] = ASTNode('write_statement', [p[3]], p[1])
@@ -252,8 +272,8 @@ def p_write_statement(p):
 
 # Lista de variáveis
 def p_variable_list(p):
-    '''variable_list : variable_list COMMA variable
-                     | variable'''
+    '''variable_list : variable_list COMMA var
+                     | var'''
     if len(p) == 2:
         p[0] = ASTNode('variable_list', [p[1]])
     else:
@@ -294,23 +314,13 @@ def p_argument_list(p):
         p[1].children.append(p[3])
         p[0] = p[1]
 
-# Variáveis
-def p_variable(p):
-    '''variable : ID
-                | ID LBRACKET expr_bool RBRACKET'''
-    if len(p) == 2:
-        p[0] = ASTNode('variable', [], p[1])
-    else:
-        p[0] = ASTNode('array_access', [p[3]], p[1])
-    p[0].line = p.lineno(1)
-
 # ===== IMPLEMENTAÇÃO DA GRAMÁTICA DE EXPRESSÕES CONFORME ESPECIFICADO PELO PROFESSOR =====
 
 # ExprBool : Expr
 #          | Expr OpRel Expr
 def p_expr_bool(p):
-    '''expr_bool : expression
-                 | expression op_rel expression'''
+    '''expr_bool : expr
+                 | expr op_rel expr'''
     if len(p) == 2:
         p[0] = p[1]
     else:
@@ -329,9 +339,9 @@ def p_op_rel(p):
 
 # Expr : Termo
 #      | Expr OpAd Termo
-def p_expression(p):
-    '''expression : termo
-                  | expression op_ad termo'''
+def p_expr(p):
+    '''expr : termo
+            | expr op_ad termo'''
     if len(p) == 2:
         p[0] = p[1]
     else:
@@ -371,7 +381,7 @@ def p_op_mul(p):
 #       | FuncCall
 def p_fator(p):
     '''fator : const
-             | variable
+             | var
              | LPAREN expr_bool RPAREN
              | func_call
              | unary_op'''
@@ -380,20 +390,15 @@ def p_fator(p):
     else:
         p[0] = p[2]  # Para o caso de parênteses
 
-def p_fator_string_access(p):
-    '''fator : ID LBRACKET expr_bool RBRACKET'''
-    p[0] = ASTNode('string_access', [p[3]], p[1])
-    p[0].line = p.lineno(1)
-
 def p_fator_length(p):
     '''fator : LENGTH LPAREN expr_bool RPAREN'''
     p[0] = ASTNode('length_call', [p[3]], 'length')
     p[0].line = p.lineno(1)
     
 # Unary operators
-def p_unary_op(p):
-    '''unary_op : MINUS fator
-                | NOT fator'''
+def p_unary_op_precedence(p):
+    '''unary_op : MINUS fator %prec UMINUS
+                | NOT fator %prec NOT'''
     p[0] = ASTNode('unary_op', [p[2]], p[1])
     p[0].line = p.lineno(1)
 
@@ -412,6 +417,16 @@ def p_const(p):
         p[0] = ASTNode('number', [], p[1])
     else:
         p[0] = ASTNode('string', [], p[1])
+    p[0].line = p.lineno(1)
+
+# Var : ID | ID "[" Expr "]"
+def p_var(p):
+    '''var : ID
+           | ID LBRACKET expr RBRACKET'''
+    if len(p) == 2:
+        p[0] = ASTNode('variable', [], p[1])
+    else:
+        p[0] = ASTNode('array_access', [p[3]], p[1])
     p[0].line = p.lineno(1)
 
 # FuncCall : ID "(" Args ")"
